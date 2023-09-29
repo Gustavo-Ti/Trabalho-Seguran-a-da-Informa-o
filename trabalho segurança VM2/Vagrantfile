@@ -1,0 +1,46 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/focal64"
+
+  config.vm.provision "shell", inline: <<-SHELL
+    # 1. Configurar hosts.allow e hosts.deny
+    echo "sshd: 10.0.0.1" >> /etc/hosts.allow
+    echo "ALL: ALL" >> /etc/hosts.deny
+
+    # 2. Configurar um banner de aviso para o SSH
+    echo "Acesso não autorizado é proibido." > /etc/issue.net
+    sed -i 's/#Banner none/Banner \/etc\/issue.net/' /etc/ssh/sshd_config
+    systemctl restart sshd
+
+    # 3. Desativar contas de usuário inativas
+    apt install accountsservice -y
+    for user in $(awk -F: '$7 != "/usr/sbin/nologin" && $7 != "/bin/false" {print $1}' /etc/passwd); do
+      lastlog -u $user | grep "Never logged in" && usermod -L $user
+    done
+
+    # 4. Desativar módulos de kernel desnecessários
+    echo "install usb-storage /bin/true" >> /etc/modprobe.d/disable-usb-storage.conf
+
+    # 5. Proteger o arquivo /etc/passwd
+    chown root:root /etc/passwd
+    chmod 644 /etc/passwd
+
+    # 6. Remover pacotes não necessários
+    apt purge snapd -y
+
+    # 7. Configurar auditoria de segurança com Auditd
+    apt install auditd audispd-plugins -y
+    systemctl enable auditd
+    systemctl start auditd
+
+    # 8. Reforçar os controles de senhas com PAM
+    apt install libpam-pwquality -y
+    echo "password requisite pam_pwquality.so retry=3 minlen=10" >> /etc/pam.d/common-password
+
+    # 9. Definir permissões de diretório home
+    chmod 700 /home/*
+
+    # 10. Desativar comandos perigosos
+    chmod 000 /usr/bin/wget
+
+  SHELL
+end
